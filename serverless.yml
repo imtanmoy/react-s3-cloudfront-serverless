@@ -11,6 +11,13 @@ custom:
     - bucketName: ${self:custom.bucketName}-${self:provider.stage}
       localDir: ${self:custom.distributionFolder}
       acl: public-read
+      params:
+        - index.html
+          CacheControl: "max-age=0,no-cache,no-store,must-revalidate"
+        - '*.js'
+          CacheControl: "max-age=31536000,public,immutable"
+        - '*.css'
+          CacheControl: "max-age=31536000,public,immutable"
 
 provider:
   name: aws

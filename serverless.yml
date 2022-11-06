@@ -1,0 +1,253 @@
+service: react-s3-cloudfront-serverless
+frameworkVersion: '3'
+
+plugins:
+  - serverless-s3-sync
+
+custom:
+  bucketName: react-s3-cloudfront-serverless
+  distributionFolder: dist
+  s3Sync:
+    - bucketName: ${self:custom.bucketName}-${self:provider.stage}
+      localDir: ${self:custom.distributionFolder}
+      acl: public-read
+
+provider:
+  name: aws
+  stage: ${opt:stage, 'dev'}
+  region: ${env:REGION, 'us-east-2'}
+
+resources:
+  Resources:
+    S3Bucket:
+      Type: AWS::S3::Bucket
+      DeletionPolicy: Delete
+      Properties:
+        BucketName: ${self:custom.bucketName}-${self:provider.stage}
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+              AllowedOrigins:
+                - '*'
+              MaxAge: 86400
+        VersioningConfiguration:
+          Status: Suspended
+        Tags:
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    OriginAccessIdentity:
+      Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+      DependsOn:
+        - S3Bucket
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: !Sub Static assets in ${AWS::StackName}
+
+    S3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref S3Bucket
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Action:
+                - s3:GetObject
+              Effect: Allow
+              Resource: !Join
+                - ''
+                - - !GetAtt S3Bucket.Arn
+                  - '/*'
+              Principal:
+                CanonicalUser: !GetAtt OriginAccessIdentity.S3CanonicalUserId
+
+    CloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      DependsOn:
+        - S3Bucket
+        - S3BucketPolicy
+        - OriginAccessIdentity
+      Properties:
+        DistributionConfig:
+          DefaultRootObject: index.html
+          Enabled: true
+          HttpVersion: http2
+          PriceClass: PriceClass_100
+          # Aliases:
+          #   - !GetAtt S3Bucket.DomainName
+          Comment: S3 CDN for ${self:service}-${self:provider.stage}
+          CustomErrorResponses:
+            - ErrorCachingMinTTL: 300
+              ErrorCode: 400
+              ResponseCode: 400
+              ResponsePagePath: /index.html
+            - ErrorCachingMinTTL: 300
+              ErrorCode: 403
+              ResponseCode: 403
+              ResponsePagePath: /index.html
+            - ErrorCachingMinTTL: 86400
+              ErrorCode: 404
+              ResponseCode: 404
+              ResponsePagePath: /index.html
+            - ErrorCachingMinTTL: 300
+              ErrorCode: 405
+              ResponseCode: 405
+              ResponsePagePath: /index.html
+            - ErrorCachingMinTTL: 300
+              ErrorCode: 414
+              ResponseCode: 414
+              ResponsePagePath: /index.html
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - HEAD
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            CachedMethods:
+              - HEAD
+              - GET
+            Compress: true
+            DefaultTTL: 86400
+            MaxTTL: 86400
+            MinTTL: 86400
+            ForwardedValues:
+              QueryString: true
+            ViewerProtocolPolicy: redirect-to-https
+            TargetOriginId: S3BucketOrigin
+          CacheBehaviors:
+            - AllowedMethods:
+                - HEAD
+                - GET
+                - OPTIONS
+              CachedMethods:
+                - HEAD
+                - GET
+              Compress: false
+              DefaultTTL: 86400
+              ForwardedValues:
+                QueryString: false
+              MaxTTL: 86400
+              MinTTL: 86400
+              PathPattern: assets/img/*
+              TargetOriginId: BucketOrigin
+              ViewerProtocolPolicy: redirect-to-https
+            - AllowedMethods:
+                - HEAD
+                - GET
+                - OPTIONS
+              CachedMethods:
+                - HEAD
+                - GET
+              Compress: false
+              DefaultTTL: 86400
+              ForwardedValues:
+                QueryString: false
+              MaxTTL: 86400
+              MinTTL: 86400
+              PathPattern: assets/icons/*
+              TargetOriginId: BucketOrigin
+              ViewerProtocolPolicy: redirect-to-https
+            - AllowedMethods:
+                - HEAD
+                - GET
+                - OPTIONS
+              CachedMethods:
+                - HEAD
+                - GET
+              Compress: false
+              DefaultTTL: 86400
+              ForwardedValues:
+                QueryString: false
+              MaxTTL: 86400
+              MinTTL: 86400
+              PathPattern: favicon.ico
+              TargetOriginId: BucketOrigin
+              ViewerProtocolPolicy: redirect-to-https
+            - AllowedMethods:
+                - HEAD
+                - GET
+                - OPTIONS
+              CachedMethods:
+                - HEAD
+                - GET
+              Compress: true
+              DefaultTTL: 60
+              ForwardedValues:
+                QueryString: false
+              MaxTTL: 60
+              MinTTL: 60
+              PathPattern: index.html
+              TargetOriginId: BucketOrigin
+              ViewerProtocolPolicy: redirect-to-https
+            - AllowedMethods:
+                - HEAD
+                - GET
+                - OPTIONS
+              CachedMethods:
+                - HEAD
+                - GET
+              Compress: true
+              DefaultTTL: 86400
+              ForwardedValues:
+                QueryString: true
+              MaxTTL: 86400
+              MinTTL: 86400
+              PathPattern: '*.js'
+              TargetOriginId: BucketOrigin
+              ViewerProtocolPolicy: redirect-to-https
+            - AllowedMethods:
+                - HEAD
+                - GET
+                - OPTIONS
+              CachedMethods:
+                - HEAD
+                - GET
+              Compress: true
+              DefaultTTL: !FindInMap [CacheSettings, !Ref EnvType, 'DefaultTTL']
+              ForwardedValues:
+                QueryString: true
+              PathPattern: '*.css'
+              TargetOriginId: BucketOrigin
+              ViewerProtocolPolicy: redirect-to-https
+          Origins:
+            - DomainName: !GetAtt S3Bucket.DomainName
+              Id: S3BucketOrigin
+              S3OriginConfig:
+                OriginAccessIdentity: !Join
+                  - ''
+                  - - origin-access-identity/cloudfront/
+                    - !Ref OriginAccessIdentity
+          ViewerCertificate:
+            AcmCertificateArn: ${env:ACM_CERTIFICATE_ARN}
+            # CloudFrontDefaultCertificate: true
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2019
+        Tags:
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: ${self:service}
+
+    Route53RecordSet:
+      Type: AWS::Route53::RecordSet
+      DependsOn:
+        - CloudFrontDistribution
+      Properties:
+        Name: ${env:ROUTE53_RECORD_SET_NAME}
+        Type: CNAME
+        HostedZoneId: ${env:ROUTE53_HOSTED_ZONE_ID}
+        TTL: 300
+        ResourceRecords:
+          - !GetAtt CloudFrontDistribution.DomainName

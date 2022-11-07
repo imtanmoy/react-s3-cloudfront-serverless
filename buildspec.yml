@@ -1,0 +1,28 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 16
+    commands:
+      - npm i -g serverless
+      - yarn config set cache-folder /root/.yarn-cache
+      - yarn install --frozen-lockfile
+  build:
+    commands:
+      - env="dev"
+      - echo $CODEBUILD_WEBHOOK_HEAD_REF
+      - echo $CODEBUILD_WEBHOOK_TRIGGER
+
+      - if [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/master" ]; then env="prod"; elif [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/uat" ]; then env="uat"; elif [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/develop" ]; then env="dev"; elif [ "$CODEBUILD_WEBHOOK_HEAD_REF" = "refs/heads/stage" ]; then env="stage"; fi
+
+      - echo "deploying for env=$env"
+      - export SLS_DEBUG=true
+      - yarn build
+      - serverless deploy --stage $env --verbose
+
+cache:
+  paths:
+    - 'node_modules/**/*'
+    - '/root/.npm/**/*'
+    - '/root/.yarn-cache/**/*'
